@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader time;
+pragma AbiHeader pubkey;
+pragma AbiHeader expire;
+
+import "../interfaces/IOpenBidRoot.tsol";
+
+import "@itgold/everscale-tip/contracts/access/OwnableExternal.sol";
+import "@itgold/everscale-tip/contracts/TIP6/TIP6.sol";
+import "../markets/OpenBid.tsol";
+
+import "../libraries/MsgFlag.tsol";
+
+/**
+ * @title OpenBidRoot
+ *
+ * @dev This contract is responsible for deploying new
+ * offer for an nft consideration.
+ * It will always generate a unique offer address for every unique
+ * nft address and offeror address
+ */
+
+contract OpenBidRoot is IOpenBidRoot, TIP6, OwnableExternal {
+  TvmCell openBidCode;
+
+  constructor(
+    TvmCell _openBidCode,
+    uint256 _rootOwnerPubKey
+  ) public OwnableExternal(_rootOwnerPubKey) {
+    tvm.accept();
+
+    openBidCode = _openBidCode;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(ITIP6.supportsInterface))
+    ] = true;
+
+    _supportedInterfaces[bytes4(tvm.functionId(IOpenBidRoot.makeOffer))] = true;
+  }
+
+  /**
+   * @dev see {IOpenBidRoot}
+   */
+  function makeOffer(
+    address _tip3TokenRoot,
+    address _nft,
+    address _offeror,
+    uint64 _expiration,
+    uint128 _tip3DeployValue
+  ) external override {
+    tvm.rawReserve(0, 4);
+    TvmCell _code = _buildOpenBidCode(address(this));
+    TvmCell _openBidState = _buildOpenBidState(_code, _nft, _offeror);
+
+    address offerContract = new OpenBid{
+      stateInit: _openBidState,
+      value: _tip3DeployValue,
+      flag: MsgFlag.SENDER_PAYS_FEES,
+      bounce: false
+    }(_offeror, _nft, _tip3TokenRoot, _tip3DeployValue, _expiration);
+
+    emit PendingOffer(
+      _nft,
+      _tip3TokenRoot,
+      offerContract,
+      _offeror,
+      _expiration
+    );
+  }
+
+  /**
+   * @dev Internal function to build insert
+   * the offer root/factory address into the offer code
+   *
+   * @param _openBidRoot our offer factory address
+   * @return TvmCell of salted code
+   */
+  function _buildOpenBidCode(
+    address _openBidRoot
+  ) internal view returns (TvmCell) {
+    TvmBuilder salt;
+    salt.store(_openBidRoot);
+
+    return tvm.setCodeSalt(openBidCode, salt.toCell());
+  }
+
+  /**
+   * @dev Internal function to build the initial state
+   * of the new initialized offer
+   *
+   * @param _code openBid root address salted code
+   * @param _nft address of the nft under consideration
+   * @param _offeror address of the offer maker
+   * @return TvmCell of the new init state
+   */
+  function _buildOpenBidState(
+    TvmCell _code,
+    address _nft,
+    address _offeror
+  ) internal pure returns (TvmCell) {
+    return
+      tvm.buildStateInit({
+        contr: OpenBid,
+        varInit: {offeror: _offeror, nft: _nft},
+        code: _code
+      });
+  }
+}

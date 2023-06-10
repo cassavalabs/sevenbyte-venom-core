@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader expire;
+pragma AbiHeader pubkey;
+pragma AbiHeader time;
+
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/ITIP4_1NFT.sol";
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/INftChangeManager.sol";
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/INftTransfer.sol";
+import "tip3/contracts/interfaces/IDestroyable.sol";
+import "tip3/contracts/interfaces/ITokenRoot.sol";
+import "tip3/contracts/interfaces/IAcceptTokensTransferCallback.sol";
+import "tip3/contracts/interfaces/ITokenWallet.sol";
+import "../interfaces/IOpenBid.tsol";
+
+import "../libraries/Constants.tsol";
+import "../libraries/MarketGas.tsol";
+import "../libraries/MarketErrors.tsol";
+import "../libraries/MsgFlag.tsol";
+
+/**
+ * @title OpenBid
+ *
+ * @dev This contract is responsible for managing
+ * the open bidding for a user
+ */
+contract OpenBid is IOpenBid, IAcceptTokensTransferCallback, INftChangeManager {
+  address static offeror;
+  address static nft;
+  address openBidRoot;
+  address tip3TokenRoot;
+  address offerWallet;
+  address offererWallet;
+  uint128 tip3DeployValue;
+  uint128 offerAmount;
+  uint64 expiration;
+
+  constructor(
+    address _offerer,
+    address _nft,
+    address _tip3TokenRoot,
+    uint128 _tip3DeployValue,
+    uint64 _expiration
+  ) public {
+    optional(TvmCell) optSalt = tvm.codeSalt(tvm.code());
+
+    require(optSalt.hasValue(), MarketErrors.CODE_SALT_DOES_NOT_EXIST);
+    address _openBidRoot = optSalt.get().toSlice().decode(address);
+    require(msg.sender == _openBidRoot, MarketErrors.INVALID_CODE_SALT);
+
+    tvm.rawReserve(MarketGas.CONTRACT_MIN_BALANCE, 0);
+
+    offeror = _offerer;
+    nft = _nft;
+    openBidRoot = _openBidRoot;
+    tip3TokenRoot = _tip3TokenRoot;
+    tip3DeployValue = _tip3DeployValue;
+    expiration = _expiration;
+
+    ITokenRoot(_tip3TokenRoot).deployWallet{
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED,
+      callback: OpenBid.onDeployOfferWallet,
+      bounce: true
+    }(address(this), _tip3DeployValue);
+  }
+
+  /**
+   * @dev Callback function called after deployment of
+   * offer tip3 wallet
+   *
+   * @param wallet address of the new deployed wallet
+   */
+  function onDeployOfferWallet(address wallet) external {
+    require(msg.sender == tip3TokenRoot, MarketErrors.NOT_TIP3_TOKEN_ROOT);
+    tvm.rawReserve(0, 4);
+    offerWallet = wallet;
+  }
+
+  /**
+   * @dev Callback function called after offeror deposit
+   * offer for consideration
+   */
+  function onAcceptTokensTransfer(
+    address,
+    uint128 amount,
+    address,
+    address senderWallet,
+    address remainingGasTo,
+    TvmCell
+  ) external override {
+    require(msg.sender == offerWallet, MarketErrors.NOT_TIP3_TOKEN_WALLET);
+    tvm.rawReserve(0, 4);
+    offerAmount = offerAmount + amount;
+    offererWallet = senderWallet;
+
+    emit OfferMade(
+      nft,
+      tip3TokenRoot,
+      address(this),
+      offeror,
+      offerAmount,
+      expiration
+    );
+
+    remainingGasTo.transfer({
+      value: 0,
+      flag: MsgFlag.REMAINING_GAS,
+      bounce: false
+    });
+  }
+
+  /**
+   * @dev Callback function called whenever this contracts
+   * transfers an nft to the offeror
+   */
+  function onNftTransfer(
+    uint256,
+    address oldOwner,
+    address,
+    address,
+    address,
+    address,
+    address gasReceiver,
+    TvmCell payload
+  ) external {
+    require(msg.sender == nft, MarketErrors.NOT_REQUIRED_NFT);
+    tvm.accept();
+    address acceptorTip3Wallet = payload.toSlice().decode(address);
+
+    TvmCell empty;
+
+    ITokenWallet(offerWallet).transferToWallet{
+      value: MarketGas.TIP3_TRANSFER,
+      flag: MsgFlag.REMAINING_GAS,
+      bounce: false
+    }(offerAmount, acceptorTip3Wallet, gasReceiver, true, empty);
+
+    emit Sale(nft, oldOwner, offeror, tip3TokenRoot, offerAmount);
+
+    IDestroyable(offerWallet).destroy{
+      value: MarketGas.DESTROY_TIP3_WALLET,
+      flag: MsgFlag.SPECIFIED_VALUE,
+      bounce: false
+    }(offeror);
+
+    offeror.transfer({
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED +
+        MsgFlag.DESTROY_IF_ZERO +
+        MsgFlag.IGNORE_ERRORS,
+      bounce: false
+    });
+  }
+
+  /**
+   * @dev Callback function called when the promisee that owns
+   * the nft accepts the tip3 token offered and changes manager
+   * to the offer contract
+   */
+  function onNftChangeManager(
+    uint256,
+    address owner,
+    address,
+    address newManager,
+    address,
+    address sendGasTo,
+    TvmCell payload
+  ) external override {
+    require(msg.sender == nft, MarketErrors.NOT_REQUIRED_NFT);
+    tvm.rawReserve(0, 4);
+
+    if (newManager == address(this) && offerAmount > 0) {
+      address acceptorTip3Wallet = payload.toSlice().decode(address);
+
+      mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+
+      TvmBuilder builder;
+      builder.store(acceptorTip3Wallet);
+
+      callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+        MarketGas.TIP3_TRANSFER + MarketGas.DESTROY_TIP3_WALLET,
+        builder.toCell()
+      );
+
+      ITIP4_1NFT(nft).transfer{
+        value: 0,
+        flag: MsgFlag.NOT_RESERVED,
+        bounce: true
+      }(offeror, sendGasTo, callbacks);
+    } else if (newManager == owner) {
+      selfdestruct(owner);
+    }
+  }
+
+  /**
+   * @dev see {IOpenBid}
+   */
+  function acceptOffer(
+    address _nft,
+    address _acceptorTip3Wallet
+  )
+    external
+    view
+    responsible
+    override
+    returns (TvmCell payload, uint128 totalGas)
+  {
+    require(_nft == nft, MarketErrors.NOT_REQUIRED_NFT);
+    tvm.rawReserve(0, 4);
+    totalGas = MarketGas.TIP3_TRANSFER + MarketGas.DESTROY_TIP3_WALLET;
+
+    TvmBuilder builder;
+    builder.store(_acceptorTip3Wallet);
+    payload = builder.toCell();
+  }
+
+  /**
+   * @dev see {IOpenBid}
+   */
+  function cancelOffer(address sendGasTo) external override {
+    require(msg.sender == offeror, MarketErrors.NOT_OFFEROR);
+    require(expiration < block.timestamp, MarketErrors.OFFER_NOT_EXPIRED);
+
+    tvm.accept();
+    TvmCell empty;
+    ITokenWallet(offerWallet).transferToWallet{
+      value: MarketGas.TIP3_TRANSFER,
+      flag: MsgFlag.REMAINING_GAS,
+      bounce: false
+    }(offerAmount, offererWallet, sendGasTo, true, empty);
+
+    emit OfferInvalidated(nft);
+
+    IDestroyable(offerWallet).destroy{
+      value: MarketGas.DESTROY_TIP3_WALLET,
+      flag: MsgFlag.SPECIFIED_VALUE,
+      bounce: true
+    }(offeror);
+
+    selfdestruct(offeror);
+  }
+}

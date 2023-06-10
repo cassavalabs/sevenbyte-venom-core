@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title ICollectionRoot
+ *
+ * @dev An interface to for the collection deployment factory
+ */
+interface ICollectionRoot {
+  /**
+   * @dev Function to deploy new {Collection} contract for user,
+   * trying to figure out a better way, if you please open an issue
+   *
+   *@param ownerPubkey public key of user
+   *
+   *@return collection address
+   */
+  function deployCollection(
+    uint256 ownerPubkey
+  ) external responsible returns (address);
+}

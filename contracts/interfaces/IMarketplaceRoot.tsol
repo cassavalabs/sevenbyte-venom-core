@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IMarketplaceRoot
+ *
+ * @dev An interface for the marketplace deployer root
+ */
+interface IMarketplaceRoot {
+  /**
+   * @dev Emitted when a new nft marketplace store
+   * is created
+   */
+  event MarketplaceCreated(
+    address marketplace,
+    address owner,
+    address tip3TokenRoot
+  );
+
+  /**
+   * @dev Function to deploy a new marketplace store
+   *
+   * @param storeOwner address of marketplace owner
+   * @param tip3TokenRoot address of accepted token root
+   * @param sendGasTo address of excess gas receiver
+   * @param deployValue amount to attach to deployment
+   */
+  function deployMarketplace(
+    address storeOwner,
+    address tip3TokenRoot,
+    address sendGasTo,
+    uint128 deployValue
+  ) external;
+
+  /**
+   * @dev Function to compute marketplace contract
+   * address
+   *
+   * @param tip3TokenRoot address of accepted token root
+   * @param storeOwner address of marketplace owner
+   * @return address
+   */
+  function getMarketplace(
+    address tip3TokenRoot,
+    address storeOwner
+  ) external view returns (address);
+}

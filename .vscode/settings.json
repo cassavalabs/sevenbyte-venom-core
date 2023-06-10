@@ -1,0 +1,15 @@
+{
+  "files.associations": {
+    "*.tsol": "ton-solidity",
+    "*.sol": "ton-solidity"
+  },
+  "files.autoSave": "off",
+  "[ton-solidity]": {
+    "editor.defaultFormatter": "everscale.solidity-support",
+    "files.trimTrailingWhitespace": false,
+    "files.trimFinalNewlines": false,
+    "editor.formatOnSave": false,
+    "editor.formatOnPaste": false,
+    "editor.formatOnType": false
+  }
+}

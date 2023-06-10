@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IMarketBase
+ *
+ * @dev An interface for the commonly shared
+ * market components
+ */
+interface IMarketBase {
+  enum MarketType {
+    BuyNow,
+    DutchAuction,
+    EnglishAuction,
+    OpenBid
+  }
+
+  /**
+   * @dev Emitted whenever an item is sold on the marketplace
+   *
+   * @param nft NFT address
+   * @param seller address of NFT seller
+   * @param buyer address of the NFT buyer
+   * @param tip3TokenRoot address of token root accepted as payment
+   * @param marketplace address of store where trade occured
+   * @param price amount the NFT was sold
+   */
+  event Sale(
+    address nft,
+    address seller,
+    address buyer,
+    address tip3TokenRoot,
+    address marketplace,
+    uint256 price
+  );
+
+  /**
+   * @dev Emitted when a new nft is listed for sale
+   *
+   * @param nft address of Nft for sale
+   * @param seller address of Nft seller
+   * @param marketplace address of exchange contract for this nft sale
+   * @param marketType can be BuyNow,EnglishAuction,DutchAuction or OpenBid
+   * @param price the reserved price for this sale
+   * @param startTime timestamp of when buy can happen
+   * @param endTime timestamp of when buy cannot happen
+   */
+  event Listed(
+    address nft,
+    address seller,
+    address marketplace,
+    MarketType marketType,
+    uint128 price,
+    uint64 startTime,
+    uint64 endTime
+  );
+
+  /**
+   * @dev Emitted when an order is cancelled
+   * @param marketplace address of the store the nft was listed
+   * @param nft unique address of nft
+   */
+  event OrderCancelled(address marketplace, address nft);
+}

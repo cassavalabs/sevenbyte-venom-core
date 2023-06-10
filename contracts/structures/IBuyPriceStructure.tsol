@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+interface IBuyPriceStructure {
+  /**
+   * @dev Object for storing pending sales
+   */
+  struct BuyPrice {
+    address nft;
+    uint128 price;
+    uint64 expiry;
+  }
+}

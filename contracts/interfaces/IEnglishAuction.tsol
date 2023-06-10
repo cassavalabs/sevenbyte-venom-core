@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IEnglishAuction
+ *
+ * @dev An interface for interacting with
+ * the english auction market
+ */
+interface IEnglishAuction {
+  /**
+   * @dev Function to build payload for creating
+   * an auction for nft sale
+   *
+   * @param nft address of nft for sale
+   * @param sendGasTo excess gas receipient
+   * @param reservePrice minimum acceptable bid amount
+   * @param startTime timestamp of auction opening
+   * @param endTime timestamp of auction closing
+   */
+  function createReserveAuction(
+    address nft,
+    address sendGasTo,
+    uint128 reservePrice,
+    uint64 startTime,
+    uint64 endTime
+  ) external view responsible returns (TvmCell, uint128);
+
+  /**
+   * @dev Function to finalize reserve auction
+   * and distribute nft to winning bid
+   *
+   * @param nft address of nft
+   * @param sendGasTo the address to refund excell gas to
+   */
+  function finalizeReserveAuction(address nft, address sendGasTo) external;
+
+  /**
+   * @dev Function to cancel a reserve auction and
+   * change manager back to owner.
+   * Can only be called by the marketplace store owner
+   *
+   * @param nft address of nft to cancel its listing
+   * @param sendGasTo address to refund excess gas to
+   */
+  function cancelReserveAuction(address nft, address sendGasTo) external;
+
+  /**
+   * @dev Function to build payload for placing
+   * a bid on a reserve auction.
+   *
+   * @param nft address of nft auctioned
+   * @param amount your bid amount
+   *
+   * @return TvmCell payload to attach to tip3 token transfer with required gasprice
+   */
+  function placeReserveAuctionBid(
+    address nft,
+    uint128 amount
+  ) external view responsible returns (TvmCell, uint128);
+}

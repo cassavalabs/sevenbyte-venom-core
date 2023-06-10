@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IOpenBidRoot
+ *
+ * @dev An interface for the offer market deployer
+ */
+interface IOpenBidRoot {
+  /**
+   * @dev Emitted when an nft receives a new offer
+   */
+  event PendingOffer(
+    address nft,
+    address tokenRoot,
+    address offerContract,
+    address offerer,
+    uint64 expiration
+  );
+
+  /**
+   * @dev Function to make an offer for an nft
+   * deploys a new offer contract
+   *
+   * @param tip3TokenRoot address of the token root
+   * @param nft address of the nft under consideration
+   * @param offeror address of the promisor
+   * @param expiration timestamp after which promisor can cancel the offer
+   * @param tip3DeployValue wallet deployment value
+   */
+  function makeOffer(
+    address tip3TokenRoot,
+    address nft,
+    address offeror,
+    uint64 expiration,
+    uint128 tip3DeployValue
+  ) external;
+}

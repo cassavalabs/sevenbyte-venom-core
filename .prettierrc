@@ -1,0 +1,24 @@
+{
+  "tabWidth": 2,
+  "printWidth": 80,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": false,
+  "jsxSingleQuote": false,
+  "trailingComma": "all",
+  "bracketSpacing": true,
+  "arrowParens": "avoid",
+  "overrides": [
+    {
+      "files": ["*.sol", "*.tsol"],
+      "options": {
+        "printWidth": 80,
+        "tabWidth": 2,
+        "useTabs": false,
+        "singleQuote": false,
+        "bracketSpacing": false,
+        "explicitTypes": "always"
+      }
+    }
+  ]
+}

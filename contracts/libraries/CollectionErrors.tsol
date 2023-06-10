@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+library CollectionErrors {
+  uint16 constant NOT_FACTORY_OWNER = 102;
+}

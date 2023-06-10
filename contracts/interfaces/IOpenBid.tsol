@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IOpenBid
+ *
+ * @dev An interface for interacting with the offer market
+ */
+interface IOpenBid {
+  /**
+   * @dev Emitted when an nft receives a new offer
+   */
+  event OfferMade(
+    address nft,
+    address tokenRoot,
+    address offerContract,
+    address offerer,
+    uint128 amount,
+    uint64 expiration
+  );
+
+  /**
+   * @dev Emitted whenever an item is sold on the marketplace
+   *
+   * @param nft NFT address
+   * @param seller address of NFT seller
+   * @param buyer address of the NFT buyer
+   * @param tip3TokenRoot address of token root accepted as payment
+   * @param price amount the NFT was sold
+   */
+  event Sale(
+    address nft,
+    address seller,
+    address buyer,
+    address tip3TokenRoot,
+    uint256 price
+  );
+
+  /**
+   * @dev Emitted when an offer is invalidated
+   * either by offerer or nft owner
+   */
+  event OfferInvalidated(address nft);
+
+  /**
+   * @dev Function to build message payload for accepting
+   * an offer made to an nft
+   *
+   * @param nft address of nft contract
+   * @param acceptorTip3Wallet address of nft owner tip wallet
+   * @return (TvmCell, uint128)
+   */
+  function acceptOffer(
+    address nft,
+    address acceptorTip3Wallet
+  ) external view responsible returns (TvmCell, uint128);
+
+  /**
+   * @dev Function to cancel offer after expiration
+   * can only be called by the offeror
+   * @param sendGasTo excess gas refund receiver
+   */
+  function cancelOffer(address sendGasTo) external;
+}

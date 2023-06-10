@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader expire;
+pragma AbiHeader pubkey;
+pragma AbiHeader time;
+
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/ITIP4_1NFT.sol";
+import "../interfaces/IEnglishAuction.tsol";
+
+import "./Auctionable.tsol";
+import "./MarketBase.tsol";
+
+import "../libraries/Constants.tsol";
+import "../libraries/MarketGas.tsol";
+
+abstract contract EnglishAuction is IEnglishAuction, MarketBase, Auctionable {
+  /**
+   * @dev see {IEnglishAuction}
+   */
+  function createReserveAuction(
+    address nft,
+    address sendGasTo,
+    uint128 reservePrice,
+    uint64 startTime,
+    uint64 endTime
+  )
+    external
+    view
+    responsible
+    override
+    onlyStoreOwner
+    returns (TvmCell payload, uint128 totalGas)
+  {
+    require(!reserveAuction.exists(nft), MarketErrors.NFT_ALREADY_LISTED);
+    _validateAuctionTime(startTime, endTime);
+
+    tvm.rawReserve(0, 4);
+
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    TvmBuilder builder;
+    builder.store(
+      Constants.ENGLISH_AUCTION,
+      nft,
+      reservePrice,
+      startTime,
+      endTime
+    );
+    totalGas = MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING;
+
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      totalGas,
+      builder.toCell()
+    );
+
+    payload = tvm.encodeBody(
+      ITIP4_1NFT.changeManager,
+      address(this),
+      sendGasTo,
+      callbacks
+    );
+
+    return
+      {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} (
+        payload,
+        totalGas
+      );
+  }
+
+  /**
+   * @dev see {IEnglishAuction}
+   */
+  function finalizeReserveAuction(
+    address nft,
+    address sendGasTo
+  ) external override {
+    require(reserveAuction.exists(nft), MarketErrors.AUCTION_DOES_NOT_EXIST);
+    require(
+      msg.value >= MarketGas.NFT_TRANSFER + MarketGas.PROCESSING,
+      MarketErrors.GAS_VALUE_TOO_LOW
+    );
+    _assertFinalizableAuction(reserveAuction[nft].endTime);
+    address buyer = reserveAuction[nft].bidder;
+
+    TvmBuilder builder;
+    builder.store(Constants.ENGLISH_AUCTION, nft);
+
+    _transferNft(nft, buyer, sendGasTo, builder.toCell());
+  }
+
+  /**
+   * @dev see {IEnglishAuction}
+   */
+  function cancelReserveAuction(
+    address nft,
+    address sendGasTo
+  ) external override onlyStoreOwner {
+    require(reserveAuction.exists(nft), MarketErrors.AUCTION_DOES_NOT_EXIST);
+    require(
+      msg.value >= MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING,
+      MarketErrors.GAS_VALUE_TOO_LOW
+    );
+    _assertCanCancelAuction(reserveAuction[nft].bidder);
+
+    tvm.rawReserve(0, 4);
+
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    TvmBuilder builder;
+    builder.store(Constants.ENGLISH_AUCTION, nft);
+
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      MarketGas.PROCESSING,
+      builder.toCell()
+    );
+
+    ITIP4_1NFT(nft).changeManager{
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED,
+      bounce: true
+    }(_owner, sendGasTo, callbacks);
+  }
+
+  /**
+   * @dev see {IEnglishAuction}
+   */
+  function placeReserveAuctionBid(
+    address nft,
+    uint128 amount
+  )
+    external
+    view
+    responsible
+    override
+    returns (TvmCell payload, uint128 totalGas)
+  {
+    _validateBid(nft, amount);
+    tvm.rawReserve(0, 4);
+
+    TvmBuilder builder;
+    builder.store(Constants.ENGLISH_AUCTION, nft, amount);
+    payload = builder.toCell();
+    totalGas = MarketGas.TIP3_TRANSFER + MarketGas.PROCESSING;
+
+    return
+      {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} (
+        payload,
+        totalGas
+      );
+  }
+
+  /**
+   * @dev see {MarketBase}
+   */
+  function _englishBid(
+    address nft,
+    address bidder,
+    address senderWallet,
+    address sendGasTo,
+    uint128 amount
+  ) internal view override {
+    if (reserveAuction.exists(nft) && amount > reserveAuction[nft].bid) {
+      ReserveAuction auction = reserveAuction[nft];
+      uint128 previousBid = auction.bid;
+      address previousBidderWallet = auction.bidderWallet;
+      uint64 timeLeft = auction.endTime - block.timestamp;
+
+      //Refund the previous bidder
+      _refundTip3Token(previousBid, previousBidderWallet, sendGasTo);
+      auction.bid = amount;
+      auction.bidder = bidder;
+      auction.bidderWallet = senderWallet;
+
+      if (timeLeft < Constants.AUCTION_EXTENSION) {
+        auction.endTime = block.timestamp + Constants.AUCTION_EXTENSION;
+      }
+    } else {
+      //Refund to sender
+      _refundTip3Token(amount, senderWallet, sendGasTo);
+    }
+  }
+
+  /**
+   * @dev Function to validate bid payload builder
+   */
+  function _validateBid(address nft, uint128 newBid) private view {
+    require(reserveAuction.exists(nft), MarketErrors.AUCTION_DOES_NOT_EXIST);
+
+    if (newBid < reserveAuction[nft].bid) {
+      revert(MarketErrors.CANNOT_BID_LESSER_AMOUNT);
+    }
+
+    if (reserveAuction[nft].endTime < block.timestamp) {
+      revert(MarketErrors.AUCTION_EXPIRED);
+    }
+
+    if (reserveAuction[nft].bidder == msg.sender) {
+      revert(MarketErrors.CANNOT_OUTBID_YOURSELF);
+    }
+  }
+}

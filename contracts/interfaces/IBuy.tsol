@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IBuy
+ *
+ * An interface for interacting with direct buy market
+ */
+
+interface IBuy {
+  /**
+   * @dev function to buy an nft
+   *
+   * @param nft address of nft
+   * @param price amount you wish to pay
+   * @return TvmCell payload
+   */
+  function buy(
+    address nft,
+    uint128 price
+  ) external view responsible returns (TvmCell, uint128);
+
+  /**
+   * @dev function to cancel nft sale
+   * @param nft address of the nft to cancel
+   * @param sendGasTo address of gas refund receiver
+   */
+  function cancelBuyPrice(address nft, address sendGasTo) external;
+
+  /**
+   * @dev function to create nft listing
+   *
+   * @param nft address of nft
+   * @param sendGasTo address of excess gas receiver
+   * @param price amount to sell the nft
+   * @param expiry timestamp when this listing will expire
+   *
+   * @return (TvmCell,uint128)
+   */
+  function createBuyListing(
+    address nft,
+    address sendGasTo,
+    uint128 price,
+    uint64 expiry
+  ) external view responsible returns (TvmCell, uint128);
+}

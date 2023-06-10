@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+interface IDutchAuctionStructure {
+  struct DeclinePriceAuction {
+    address nft;
+    address bidder;
+    address bidderWallet;
+    uint128 bid;
+    uint128 startingPrice;
+    uint128 reservePrice;
+    uint64 startTime;
+    uint64 endTime;
+  }
+}

@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader time;
+pragma AbiHeader pubkey;
+pragma AbiHeader expire;
+
+import "../interfaces/ICollectionRoot.tsol";
+
+import "../libraries/CollectionErrors.tsol";
+import "../libraries/MsgFlag.tsol";
+
+import "@itgold/everscale-tip/contracts/access/OwnableExternal.sol";
+import "@itgold/everscale-tip/contracts/TIP6/TIP6.sol";
+import "../Collection.tsol";
+
+/**
+ * @title CollectionRoot
+ *
+ * @dev This contract is used to create new {Collection} contracts
+ */
+contract CollectionRoot is ICollectionRoot, OwnableExternal, TIP6 {
+  uint128 public _deployValue;
+
+  TvmCell public _rootCode;
+  TvmCell public _codeNft;
+  TvmCell public _codeIndex;
+  TvmCell public _codeIndexBasis;
+
+  constructor(
+    uint256 ownerPubKey,
+    uint128 deployValue,
+    TvmCell rootCode,
+    TvmCell codeNft,
+    TvmCell codeIndex,
+    TvmCell codeIndexBasis
+  ) public OwnableExternal(ownerPubKey) {
+    tvm.accept();
+
+    _deployValue = deployValue;
+    _rootCode = rootCode;
+    _codeNft = codeNft;
+    _codeIndex = codeIndex;
+    _codeIndexBasis = codeIndexBasis;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(ITIP6.supportsInterface))
+    ] = true;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(ICollectionRoot.deployCollection))
+    ] = true;
+  }
+
+  /**
+   *@notice see {ICollectionFactory}
+   */
+  function deployCollection(
+    uint256 ownerPubkey
+  ) external responsible override returns (address) {
+    tvm.rawReserve(address(this).balance - msg.value, 0);
+
+    TvmCell stateInit = tvm.buildStateInit({
+      contr: Collection,
+      varInit: {},
+      code: _rootCode
+    });
+
+    address collection = new Collection{
+      stateInit: stateInit,
+      value: _deployValue,
+      flag: MsgFlag.SENDER_PAYS_FEES,
+      bounce: false
+    }(_codeNft, _codeIndex, _codeIndexBasis, ownerPubkey);
+    return {value: 0, flag: MsgFlag.NOT_RESERVED, bounce: false} collection;
+  }
+}

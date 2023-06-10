@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+library MsgFlag {
+  uint8 constant SPECIFIED_VALUE = 0;
+  uint8 constant SENDER_PAYS_FEES = 1;
+  uint8 constant IGNORE_ERRORS = 2;
+  uint8 constant DESTROY_IF_ZERO = 32;
+  uint8 constant REMAINING_GAS = 64;
+  uint8 constant NOT_RESERVED = 128;
+}

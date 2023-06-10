@@ -1,0 +1,461 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader expire;
+pragma AbiHeader pubkey;
+pragma AbiHeader time;
+
+import "tip3/contracts/interfaces/ITokenRoot.sol";
+import "tip3/contracts/interfaces/IAcceptTokensTransferCallback.sol";
+import "tip3/contracts/interfaces/ITokenWallet.sol";
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/INftChangeManager.sol";
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/INftTransfer.sol";
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/ITIP4_1NFT.sol";
+import "../interfaces/IMarketBase.tsol";
+
+import "../libraries/MsgFlag.tsol";
+import "../libraries/MarketErrors.tsol";
+import "../libraries/MarketGas.tsol";
+import "../libraries/Constants.tsol";
+
+import "../structures/IBuyPriceStructure.tsol";
+import "../structures/IDutchAuctionStructure.tsol";
+import "../structures/IEnglishAuctionStructure.tsol";
+
+abstract contract MarketBase is
+  IMarketBase,
+  INftChangeManager,
+  IBuyPriceStructure,
+  IDutchAuctionStructure,
+  IEnglishAuctionStructure,
+  IAcceptTokensTransferCallback
+{
+  mapping(address => BuyPrice) public buyPrice;
+  mapping(address => ReserveAuction) public reserveAuction;
+  mapping(address => DeclinePriceAuction) public dutchAuction;
+
+  address static _owner;
+  address static _marketplaceRoot;
+  address static _tip3TokenRoot;
+
+  address public _tip3TokenWallet;
+  address public _sendGasTo;
+  address public _marketWallet;
+  address public _sellerTip3Wallet;
+  uint128 public _tip3DeployValue;
+
+  modifier onlyStoreOwner() {
+    require(msg.sender == _owner, MarketErrors.NOT_STORE_OWNER);
+    _;
+  }
+
+  constructor(
+    address owner,
+    address sendGasTo,
+    address tip3TokenRoot,
+    uint128 tip3DeployValue
+  ) public {
+    optional(TvmCell) optSalt = tvm.codeSalt(tvm.code());
+
+    require(optSalt.hasValue(), MarketErrors.CODE_SALT_DOES_NOT_EXIST);
+    address root = optSalt.get().toSlice().decode(address);
+
+    require(msg.sender == root, MarketErrors.INVALID_CODE_SALT);
+
+    tvm.rawReserve(0, 4);
+
+    _owner = owner;
+    _sendGasTo = sendGasTo;
+    _tip3TokenRoot = tip3TokenRoot;
+    _tip3DeployValue = tip3DeployValue;
+    _marketplaceRoot = root;
+
+    ITokenRoot(_tip3TokenRoot).deployWallet{
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED,
+      callback: MarketBase.onDeployMarketWallet,
+      bounce: true
+    }(address(this), _tip3DeployValue);
+  }
+
+  /**
+   * @dev Callback function called immediately
+   * the new exchange wallet is deployed for
+   * the store
+   * @param wallet address of the deployed wallet
+   */
+  function onDeployMarketWallet(address wallet) external {
+    _assertTip3RootCaller(_tip3TokenRoot);
+
+    tvm.rawReserve(0, 4);
+    _marketWallet = wallet;
+
+    ITokenRoot(_tip3TokenRoot).deployWallet{
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED,
+      callback: MarketBase.onDeploySellerWallet,
+      bounce: true
+    }(_owner, _tip3DeployValue);
+  }
+
+  /**
+   * @dev Callback called after deploying
+   * marketplace seller tip3 wallet
+   */
+  function onDeploySellerWallet(address wallet) external {
+    _assertTip3RootCaller(_tip3TokenRoot);
+    _sellerTip3Wallet = wallet;
+  }
+
+  /**
+   * @dev see {INftChangeManager}
+   */
+  function onNftChangeManager(
+    uint256,
+    address owner,
+    address oldManager,
+    address newManager,
+    address,
+    address sendGasTo,
+    TvmCell payload
+  ) external override {
+    tvm.rawReserve(0, 4);
+
+    if (newManager == address(this)) {
+      TvmSlice order = payload.toSlice();
+      uint8 marketType = order.decode(uint8);
+
+      if (marketType == Constants.BUY) {
+        (address nft, uint128 price, uint64 expiry) = order.decode(
+          address,
+          uint128,
+          uint64
+        );
+        buyPrice[nft] = BuyPrice(nft, price, expiry);
+
+        emit Listed(
+          nft,
+          owner,
+          address(this),
+          MarketType.BuyNow,
+          price,
+          block.timestamp,
+          expiry
+        );
+      } else if (marketType == Constants.DUTCH_AUCTION) {
+        (
+          address nft,
+          uint128 startingPrice,
+          uint128 reservePrice,
+          uint64 startTime,
+          uint64 endTime
+        ) = order.decode(address, uint128, uint128, uint64, uint64);
+        DeclinePriceAuction auction = dutchAuction[nft];
+
+        auction.nft = nft;
+        auction.startingPrice = startingPrice;
+        auction.reservePrice = reservePrice;
+        auction.startTime = startTime;
+        auction.endTime = endTime;
+
+        emit Listed(
+          nft,
+          owner,
+          address(this),
+          MarketType.DutchAuction,
+          startingPrice,
+          startTime,
+          endTime
+        );
+      } else if (marketType == Constants.ENGLISH_AUCTION) {
+        (
+          address nft,
+          uint128 reservePrice,
+          uint64 startTime,
+          uint64 endTime
+        ) = order.decode(address, uint128, uint64, uint64);
+        ReserveAuction auction = reserveAuction[nft];
+
+        auction.nft = nft;
+        auction.reservePrice = reservePrice;
+        auction.startTime = startTime;
+        auction.endTime = endTime;
+
+        emit Listed(
+          nft,
+          owner,
+          address(this),
+          MarketType.EnglishAuction,
+          reservePrice,
+          startTime,
+          endTime
+        );
+      } else {
+        //Certainly not for sale
+        mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+        ITIP4_1NFT(msg.sender).changeManager{
+          value: 0,
+          flag: MsgFlag.REMAINING_GAS,
+          bounce: false
+        }(oldManager, sendGasTo, callbacks);
+      }
+    } else if (newManager == _owner) {
+      _invalidateOrder(payload);
+      sendGasTo.transfer({value: 0, flag: MsgFlag.NOT_RESERVED, bounce: false});
+    } else {
+      sendGasTo.transfer({
+        value: 0,
+        flag: MsgFlag.REMAINING_GAS + MsgFlag.IGNORE_ERRORS,
+        bounce: false
+      });
+    }
+  }
+
+  /**
+   * @dev see {INftTransfer}
+   */
+  function onNftTransfer(
+    uint256,
+    address,
+    address newOwner,
+    address,
+    address,
+    address,
+    address gasReceiver,
+    TvmCell payload
+  ) external {
+    (uint8 marketType, address nft) = payload.toSlice().decode(uint8, address);
+    require(msg.sender == nft, MarketErrors.NOT_REQUIRED_NFT);
+    tvm.rawReserve(0, 4);
+
+    if (marketType == Constants.BUY) {
+      emit Sale(
+        nft,
+        _owner,
+        newOwner,
+        _tip3TokenRoot,
+        address(this),
+        buyPrice[nft].price
+      );
+      delete buyPrice[nft];
+    } else if (marketType == Constants.DUTCH_AUCTION) {
+      emit Sale(
+        nft,
+        _owner,
+        newOwner,
+        _tip3TokenRoot,
+        address(this),
+        dutchAuction[nft].bid
+      );
+      delete dutchAuction[nft];
+    } else if (marketType == Constants.ENGLISH_AUCTION) {
+      emit Sale(
+        nft,
+        _owner,
+        newOwner,
+        _tip3TokenRoot,
+        address(this),
+        reserveAuction[nft].bid
+      );
+      delete reserveAuction[nft];
+    } else {
+      //Its none of your business
+    }
+    gasReceiver.transfer({
+      value: 0,
+      flag: MsgFlag.REMAINING_GAS,
+      bounce: false
+    });
+  }
+
+  /**
+   * @notice Callback from _tip3TokenWallet on receive token
+   */
+  function onAcceptTokensTransfer(
+    address,
+    uint128 amount,
+    address sender,
+    address senderWallet,
+    address remainingGasTo,
+    TvmCell payload
+  ) external override {
+    _assertTip3WalletCaller(_tip3TokenWallet);
+    _assertTip3RootCaller(_tip3TokenRoot);
+
+    tvm.rawReserve(0, 4);
+
+    TvmSlice slice = payload.toSlice();
+    (uint8 marketType, address nft) = slice.decode(uint8, address);
+
+    if (marketType == Constants.BUY) {
+      _buy(amount, nft, sender, senderWallet, remainingGasTo);
+    } else if (marketType == Constants.DUTCH_AUCTION) {
+      _dutchBid(nft, sender, senderWallet, remainingGasTo, amount);
+    } else if (marketType == Constants.ENGLISH_AUCTION) {
+      _englishBid(nft, sender, senderWallet, remainingGasTo, amount);
+    } else {
+      _refundTip3Token(amount, senderWallet, remainingGasTo);
+    }
+  }
+
+  /**
+   * @dev Get bid increment amount
+   */
+  function _getMinIncrement(
+    uint128 currentAmount
+  ) internal pure returns (uint128) {
+    uint128 minIncrement = math.muldiv(
+      currentAmount,
+      Constants.TEN_PERCENT,
+      Constants.HUNDRED_PERCENT
+    );
+
+    if (minIncrement == 0) {
+      return currentAmount + 1;
+    }
+
+    return minIncrement + currentAmount;
+  }
+
+  /**
+   * @dev Internal function to return remaining gas to caller
+   */
+  function _refundGasToCaller() internal pure {
+    msg.sender.transfer({value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false});
+  }
+
+  /**
+   * @dev Internal function to refund tip3 token
+   *
+   * @param amount refund value
+   * @param recipientTokenWallet wallet address of receiver
+   * @param remainingGasTo address of excess gas receiver
+   */
+  function _refundTip3Token(
+    uint128 amount,
+    address recipientTokenWallet,
+    address remainingGasTo
+  ) internal view {
+    TvmCell empty;
+
+    ITokenWallet(_tip3TokenWallet).transferToWallet{
+      value: MarketGas.TIP3_TRANSFER,
+      flag: MsgFlag.SPECIFIED_VALUE,
+      bounce: false
+    }(amount, recipientTokenWallet, remainingGasTo, true, empty);
+  }
+
+  /**
+   * @dev Internal function to transfer Nft
+   */
+  function _transferNft(
+    address nft,
+    address to,
+    address sendGasTo,
+    TvmCell payload
+  ) internal pure {
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      MarketGas.NFT_TRANSFER,
+      payload
+    );
+
+    ITIP4_1NFT(nft).transfer{
+      value: MarketGas.NFT_TRANSFER,
+      flag: MsgFlag.SPECIFIED_VALUE,
+      bounce: true
+    }(to, sendGasTo, callbacks);
+  }
+
+  /**
+   * @dev Internal function to check
+   * if caller is the accepted tip3 token root
+   */
+  function _assertTip3RootCaller(address root) internal pure {
+    require(msg.sender == root, MarketErrors.NOT_TIP3_TOKEN_ROOT);
+  }
+
+  /**
+   * @dev Internal function to check
+   * if caller is the expected token wallet
+   */
+  function _assertTip3WalletCaller(address wallet) internal pure {
+    require(msg.sender == wallet, MarketErrors.NOT_TIP3_TOKEN_WALLET);
+  }
+
+  /**
+   * @dev Internal function return minimum reserve balance
+   */
+  function _reserve() internal pure returns (uint128) {
+    return
+      math.max(
+        address(this).balance - msg.value,
+        MarketGas.CONTRACT_MIN_BALANCE
+      );
+  }
+
+  /**
+   * @dev Internal function to validate buy
+   */
+  function _buy(
+    uint128 amount,
+    address nft,
+    address to,
+    address senderWallet,
+    address sendGasTo
+  ) internal view virtual;
+
+  /**
+   * @dev Internal function to validate English
+   * Auction bids
+   */
+  function _englishBid(
+    address nft,
+    address bidder,
+    address senderWallet,
+    address sendGasTo,
+    uint128 amount
+  ) internal view virtual;
+
+  /**
+   * @dev Internal function to validate Dutch
+   * Auction bids
+   */
+  function _dutchBid(
+    address nft,
+    address bidder,
+    address senderWallet,
+    address sendGasTo,
+    uint128 amount
+  ) internal view virtual;
+
+  /**
+   * @dev Internal function to handle order
+   * cancellation
+   */
+  function _invalidateOrder(TvmCell payload) internal {
+    TvmSlice slice = payload.toSlice();
+    uint8 marketType;
+    address nft;
+
+    if (slice.bits() >= 8) {
+      marketType = slice.decode(uint8);
+    }
+
+    if (slice.bits() == 267) {
+      nft = slice.decode(address);
+    }
+
+    if (marketType != 0 && nft != address(0)) {
+      if (marketType == Constants.BUY) {
+        delete buyPrice[nft];
+      } else if (marketType == Constants.DUTCH_AUCTION) {
+        delete dutchAuction[nft];
+      } else if (marketType == Constants.ENGLISH_AUCTION) {
+        delete reserveAuction[nft];
+      } else {}
+      emit OrderCancelled(address(this), nft);
+    }
+  }
+}

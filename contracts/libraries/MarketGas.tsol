@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+library MarketGas {
+  uint128 constant NFT_CHANGE_MANAGER = 0.3 ever;
+  uint128 constant NFT_TRANSFER = 0.5 ever;
+  uint128 constant TIP3_TRANSFER = 0.5 ever;
+  uint128 constant DESTROY_TIP3_WALLET = 0.5 ever;
+  uint128 constant PROCESSING = 0.2 ever;
+  uint128 constant REMAIN_ON_STORE = 0.2 ever;
+  uint128 constant CONTRACT_MIN_BALANCE = 1 ever;
+}

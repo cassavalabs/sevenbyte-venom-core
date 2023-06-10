@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader time;
+pragma AbiHeader expire;
+pragma AbiHeader pubkey;
+
+import "../libraries/Constants.tsol";
+import "../libraries/MarketErrors.tsol";
+
+abstract contract Auctionable {
+  /**
+   * @dev Emitted when an auction receives a new bid
+   */
+  event BidPlaced(address nft, address bidder, uint128 amount);
+
+  /**
+   * @dev Emitted when an auction is extended
+   */
+  event AuctionExtended(address nft, uint64 endingTime);
+
+  /**
+   * @dev Check if valid start and end time is provided while creating
+   * an auction
+   *
+   * @param startTime auction opening timestamp
+   * @param endTime auction closing timestamp
+   */
+
+  function _validateAuctionTime(
+    uint64 startTime,
+    uint64 endTime
+  ) internal pure {
+    if (
+      endTime > Constants.MAXIMUM_AUCTION_TIME ||
+      startTime > Constants.MAXIMUM_AUCTION_TIME ||
+      startTime > endTime
+    ) {
+      revert(MarketErrors.INVALID_AUCTION_TIME);
+    }
+  }
+
+  function _assertFinalizableAuction(uint64 endTime) internal pure {
+    if (endTime >= block.timestamp) {
+      revert(MarketErrors.CANNOT_FINALIZE_AUCTION_NOW);
+    }
+
+    if (endTime == 0) {
+      revert(MarketErrors.AUCTION_FINALIZED_ALREADY);
+    }
+  }
+
+  function _assertCanCancelAuction(address bidder) internal pure {
+    if (bidder != address(0)) {
+      revert(MarketErrors.CANNOT_CANCEL_AUCTION);
+    }
+  }
+}

@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader time;
+pragma AbiHeader pubkey;
+pragma AbiHeader expire;
+
+import "../interfaces/IMarketplaceRoot.tsol";
+
+import "@itgold/everscale-tip/contracts/access/OwnableExternal.sol";
+import "@itgold/everscale-tip/contracts/TIP6/TIP6.sol";
+import "../markets/Marketplace.tsol";
+
+import "../libraries/MsgFlag.tsol";
+
+/**
+ * @title MarketplaceRoot
+ *
+ * @dev This contract is responsible for creating new marketplace
+ * for a user, it will always generate a unique marketplace for every
+ * unique combinations of tip3TokenRoot and owner account
+ */
+
+contract MarketplaceRoot is IMarketplaceRoot, OwnableExternal, TIP6 {
+  TvmCell rootCode;
+
+  constructor(
+    uint256 _ownerPubKey,
+    TvmCell _rootCode
+  ) public OwnableExternal(_ownerPubKey) {
+    tvm.accept();
+
+    rootCode = _rootCode;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(ITIP6.supportsInterface))
+    ] = true;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(IMarketplaceRoot.deployMarketplace))
+    ] = true;
+  }
+
+  /**
+   * @dev see {IMarketplaceRoot}
+   */
+  function deployMarketplace(
+    address _storeOwner,
+    address _tip3TokenRoot,
+    address _sendGasTo,
+    uint128 _deployValue
+  ) external override {
+    require(
+      msg.value >= MarketGas.CONTRACT_MIN_BALANCE,
+      MarketErrors.GAS_VALUE_TOO_LOW
+    );
+    tvm.rawReserve(0, 4);
+
+    TvmCell _code = _buildMarketplaceCode(address(this));
+    TvmCell _marketState = _buildMarketplaceState(
+      _code,
+      _storeOwner,
+      _tip3TokenRoot
+    );
+
+    address marketAddress = new Marketplace{
+      stateInit: _marketState,
+      value: _deployValue,
+      flag: MsgFlag.SENDER_PAYS_FEES,
+      bounce: false
+    }(_storeOwner, _sendGasTo, _tip3TokenRoot, _deployValue);
+
+    emit MarketplaceCreated(marketAddress, _storeOwner, _tip3TokenRoot);
+
+    // return {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} marketAddress;
+  }
+
+  /**
+   * @dev see {IMarketplaceRoot}
+   */
+  function getMarketplace(
+    address tip3TokenRoot,
+    address storeOwner
+  ) external view override returns (address marketplace) {
+    TvmCell code = _buildMarketplaceCode(address(this));
+    TvmCell state = _buildMarketplaceState(code, storeOwner, tip3TokenRoot);
+
+    uint256 stateHash = tvm.hash(state);
+    marketplace = address.makeAddrStd(address(this).wid, stateHash);
+  }
+
+  /**
+   * @dev Internal function to build new instance code
+   * salted with the root deployer address.
+   *
+   * @param _marketplaceRoot address of the deployer
+   * @return TvmCell of salted code
+   */
+  function _buildMarketplaceCode(
+    address _marketplaceRoot
+  ) internal view returns (TvmCell) {
+    TvmBuilder salt;
+    salt.store(_marketplaceRoot);
+
+    return tvm.setCodeSalt(rootCode, salt.toCell());
+  }
+
+  /**
+   * @dev Internal function to build the initial state
+   * of the new initialized marketplace.
+   * In the future we might add more parameter to allow
+   * a single address deploy multiple instance of the marketplace
+   *
+   * @param _code salted code of maketplace
+   * @param _owner address of the store owner
+   * @param _tip3TokenRoot address of the tip3 token root accepted
+   * @return TvmCell of the new init state
+   */
+  function _buildMarketplaceState(
+    TvmCell _code,
+    address _owner,
+    address _tip3TokenRoot
+  ) internal pure returns (TvmCell) {
+    return
+      tvm.buildStateInit({
+        contr: Marketplace,
+        varInit: {_owner: _owner, _tip3TokenRoot: _tip3TokenRoot},
+        code: _code
+      });
+  }
+}

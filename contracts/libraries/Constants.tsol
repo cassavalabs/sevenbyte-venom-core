@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+library Constants {
+  uint8 constant BUY = 1;
+  uint8 constant DUTCH_AUCTION = 2;
+  uint8 constant ENGLISH_AUCTION = 3;
+  uint8 constant OFFER = 4;
+  uint32 constant HUNDRED_PERCENT = 1_000;
+  uint32 constant TEN_PERCENT = 100;
+  uint64 constant AUCTION_EXTENSION = 15 minutes;
+  uint64 constant MAXIMUM_AUCTION_TIME = 185 days;
+}

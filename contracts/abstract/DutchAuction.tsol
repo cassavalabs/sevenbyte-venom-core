@@ -1,0 +1,263 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader time;
+pragma AbiHeader expire;
+pragma AbiHeader pubkey;
+
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/ITIP4_1NFT.sol";
+import "../interfaces/IDutchAuction.tsol";
+
+import "./Auctionable.tsol";
+import "./MarketBase.tsol";
+
+import "../libraries/Constants.tsol";
+import "../libraries/MarketGas.tsol";
+
+/**
+ * @title DutchAuction
+ *
+ * An implementation of dutch auctioning mechanism for
+ * the sale of digital assets. This is useful when trying to sell
+ * an item you cannot value at the moment, so you place a price so high
+ * that will keep declining with time until someone finally
+ * purchases it.
+ */
+abstract contract DutchAuction is IDutchAuction, MarketBase, Auctionable {
+  /**
+   * @dev see {IDutchAuction}
+   */
+  function finalizeDutchAuction(
+    address nft,
+    address sendGasTo
+  ) external override {
+    require(dutchAuction.exists(nft), MarketErrors.AUCTION_DOES_NOT_EXIST);
+    require(
+      msg.value >= MarketGas.NFT_TRANSFER + MarketGas.PROCESSING,
+      MarketErrors.GAS_VALUE_TOO_LOW
+    );
+    _assertFinalizableAuction(dutchAuction[nft].endTime);
+    address buyer = dutchAuction[nft].bidder;
+
+    TvmBuilder builder;
+    builder.store(Constants.DUTCH_AUCTION, nft);
+
+    _transferNft(nft, buyer, sendGasTo, builder.toCell());
+  }
+
+  /**
+   * @dev see {IDutchAuction}
+   */
+  function cancelDutchAuction(
+    address nft,
+    address sendGasTo
+  ) external override onlyStoreOwner {
+    require(dutchAuction.exists(nft), MarketErrors.AUCTION_DOES_NOT_EXIST);
+    require(
+      msg.value >= MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING,
+      MarketErrors.GAS_VALUE_TOO_LOW
+    );
+    _assertCanCancelAuction(dutchAuction[nft].bidder);
+
+    tvm.rawReserve(0, 4);
+
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    TvmBuilder builder;
+    builder.store(Constants.DUTCH_AUCTION, nft);
+
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      MarketGas.PROCESSING,
+      builder.toCell()
+    );
+
+    ITIP4_1NFT(nft).changeManager{
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED,
+      bounce: true
+    }(_owner, sendGasTo, callbacks);
+  }
+
+  /**
+   * @dev see {IDutchAuction}
+   */
+  function createDutchAuction(
+    address nft,
+    address sendGasTo,
+    uint128 startingPrice,
+    uint128 reservePrice,
+    uint64 startTime,
+    uint64 endTime
+  )
+    external
+    view
+    responsible
+    override
+    onlyStoreOwner
+    returns (TvmCell payload, uint128 totalGas)
+  {
+    require(!dutchAuction.exists(nft), MarketErrors.NFT_ALREADY_LISTED);
+    _validateAuctionTime(startTime, endTime);
+
+    tvm.rawReserve(0, 4);
+
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    TvmBuilder builder;
+    builder.store(
+      Constants.DUTCH_AUCTION,
+      nft,
+      startingPrice,
+      reservePrice,
+      startTime,
+      endTime
+    );
+    totalGas = MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING;
+
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      totalGas,
+      builder.toCell()
+    );
+
+    payload = tvm.encodeBody(
+      ITIP4_1NFT.changeManager,
+      address(this),
+      sendGasTo,
+      callbacks
+    );
+
+    return
+      {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} (
+        payload,
+        totalGas
+      );
+  }
+
+  /**
+   * @dev see {IDutchAuction}
+   */
+  function placeDutchAuctionBid(
+    address nft,
+    uint128 amount
+  )
+    external
+    view
+    responsible
+    override
+    returns (TvmCell payload, uint128 totalGas)
+  {
+    _assertBidValidity(nft);
+    tvm.rawReserve(0, 4);
+
+    TvmBuilder builder;
+    builder.store(Constants.DUTCH_AUCTION, nft, amount);
+    payload = builder.toCell();
+    totalGas = MarketGas.TIP3_TRANSFER + MarketGas.PROCESSING;
+
+    return
+      {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} (
+        payload,
+        totalGas
+      );
+  }
+
+  /**
+   * @dev see {IDutchAuction}
+   */
+  function getDeclinePrice(
+    address nft
+  ) external view override returns (uint128) {
+    if (
+      dutchAuction.exists(nft) && dutchAuction[nft].endTime > block.timestamp
+    ) {
+      uint128 currentPrice = _getDeclinePrice(
+        dutchAuction[nft].startingPrice,
+        dutchAuction[nft].endTime
+      );
+
+      return currentPrice;
+    } else {
+      return 0;
+    }
+  }
+
+  /**
+   * @dev Internal function to validate
+   * dutch auction bid
+   */
+  function _assertBidValidity(address nft) private view {
+    if (dutchAuction.exists(nft)) {
+      revert(MarketErrors.AUCTION_DOES_NOT_EXIST);
+    }
+
+    if (dutchAuction[nft].endTime < block.timestamp) {
+      revert(MarketErrors.AUCTION_EXPIRED);
+    }
+
+    if (dutchAuction[nft].bidder == msg.sender) {
+      revert(MarketErrors.CANNOT_OUTBID_YOURSELF);
+    }
+  }
+
+  /**
+   * @dev see {MarketBase}
+   */
+  function _dutchBid(
+    address nft,
+    address bidder,
+    address senderWallet,
+    address sendGasTo,
+    uint128 amount
+  ) internal view override {
+    if (
+      dutchAuction.exists(nft) &&
+      amount > dutchAuction[nft].bid &&
+      amount > dutchAuction[nft].reservePrice
+    ) {
+      DeclinePriceAuction auction = dutchAuction[nft];
+      uint128 previousBid = auction.bid;
+      address previousBidderWallet = auction.bidderWallet;
+      uint64 timeLeft = auction.endTime - block.timestamp;
+
+      //Refund the previous bidder
+      _refundTip3Token(previousBid, previousBidderWallet, sendGasTo);
+      auction.bid = amount;
+      auction.bidder = bidder;
+      auction.bidderWallet = senderWallet;
+
+      if (timeLeft < Constants.AUCTION_EXTENSION) {
+        auction.endTime = block.timestamp + Constants.AUCTION_EXTENSION;
+      }
+    } else {
+      //Refund to sender
+      _refundTip3Token(amount, senderWallet, sendGasTo);
+    }
+  }
+
+  /**
+   * @dev Calculate the next decline price amount
+   *
+   * @param startingPrice the initial start price
+   * @param endTime timestamp of auction closing
+   * @return bestBid
+   */
+  function _getDeclinePrice(
+    uint128 startingPrice,
+    uint64 endTime
+  ) private pure returns (uint128 bestBid) {
+    uint128 price;
+
+    uint64 decayConstant = math.divc(
+      endTime - block.timestamp,
+      Constants.AUCTION_EXTENSION
+    );
+
+    uint128 decayAmount = math.muldiv(
+      startingPrice,
+      decayConstant,
+      Constants.TEN_PERCENT
+    );
+
+    price = startingPrice - decayAmount;
+    bestBid = price > 0 ? price : 0;
+  }
+}

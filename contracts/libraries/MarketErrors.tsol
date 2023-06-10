@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+library MarketErrors {
+  /*
+   * Revert when the msg.value is too low
+   * to continue processing transaction
+   */
+  uint16 constant GAS_VALUE_TOO_LOW = 102;
+
+  //Revert when code salt does not exist
+  uint16 constant CODE_SALT_DOES_NOT_EXIST = 103;
+
+  //Revert when code salt is invalid
+  uint16 constant INVALID_CODE_SALT = 104;
+
+  //Revert when caller is not token root
+  uint16 constant NOT_TIP3_TOKEN_ROOT = 105;
+
+  //Revert when caller is not required nft
+  uint16 constant NOT_REQUIRED_NFT = 106;
+
+  //Revert when caller is not store owner
+  uint16 constant NOT_STORE_OWNER = 107;
+
+  //Revert when trying to list an already listed nft for sale
+  uint16 constant NFT_ALREADY_LISTED = 108;
+
+  //Revert when trying to buy non listed nfts
+  uint16 constant NFT_NOT_FOR_SALE = 109;
+
+  //Revert when caller is not expected wallet
+  uint16 constant NOT_TIP3_TOKEN_WALLET = 110;
+
+  //Revert when trying to cancel auction with bid
+  uint16 constant CANNOT_CANCEL_AUCTION = 111;
+
+  //Revert when trying to finalize ongoing auction
+  uint16 constant CANNOT_FINALIZE_AUCTION_NOW = 112;
+
+  //Revert when trying to finalize completed/non-exising auction
+  uint16 constant AUCTION_FINALIZED_ALREADY = 113;
+
+  //Revert when invalid auction times are set
+  uint16 constant INVALID_AUCTION_TIME = 114;
+
+  //Revert when trying to buy nft for a lower price
+  uint16 constant PRICE_TOO_SMALL = 115;
+
+  //Revert when trying to bid on non-existing auction
+  uint16 constant AUCTION_DOES_NOT_EXIST = 116;
+
+  //Revert when trying to bid on closed auction
+  uint16 constant AUCTION_EXPIRED = 117;
+
+  //Revert when trying to outbid yourself
+  uint16 constant CANNOT_OUTBID_YOURSELF = 118;
+
+  //Revert when trying to place bid lesser than bestbid
+  uint16 constant CANNOT_BID_LESSER_AMOUNT = 119;
+
+  //Revert when trying to make an offer lesser than active one
+  uint16 constant OFFER_CANNOT_BE_LESSER = 120;
+
+  //Revert when caller is not the offeror
+  uint16 constant NOT_OFFEROR = 121;
+
+  //Revert when trying to cancel an offer before expiration
+  uint16 constant OFFER_NOT_EXPIRED = 122;
+}

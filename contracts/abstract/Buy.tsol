@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader expire;
+pragma AbiHeader time;
+pragma AbiHeader pubkey;
+
+import "@itgold/everscale-tip/contracts/TIP4_1/interfaces/ITIP4_1NFT.sol";
+import "../interfaces/IBuy.tsol";
+
+import "./MarketBase.tsol";
+
+import "../libraries/Constants.tsol";
+import "../libraries/MarketGas.tsol";
+
+abstract contract Buy is IBuy, MarketBase {
+  /**
+   * @dev see {IBuy}
+   */
+  function createBuyListing(
+    address nft,
+    address sendGasTo,
+    uint128 price,
+    uint64 expiry
+  )
+    external
+    view
+    responsible
+    override
+    onlyStoreOwner
+    returns (TvmCell, uint128)
+  {
+    require(!buyPrice.exists(nft), MarketErrors.NFT_ALREADY_LISTED);
+
+    tvm.rawReserve(0, 4);
+
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    TvmBuilder builder;
+    builder.store(Constants.BUY, nft, price, expiry);
+    uint128 totalGas = MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING;
+
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      totalGas,
+      builder.toCell()
+    );
+
+    TvmCell payload = tvm.encodeBody(
+      ITIP4_1NFT.changeManager,
+      address(this),
+      sendGasTo,
+      callbacks
+    );
+
+    return
+      {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} (
+        payload,
+        totalGas
+      );
+  }
+
+  /**
+   * @dev see {IBuy}
+   */
+  function buy(
+    address nft,
+    uint128 price
+  ) external view responsible override returns (TvmCell, uint128) {
+    require(buyPrice.exists(nft), MarketErrors.NFT_NOT_FOR_SALE);
+    require(price >= buyPrice[nft].price, MarketErrors.PRICE_TOO_SMALL);
+
+    tvm.rawReserve(0, 4);
+
+    TvmBuilder builder;
+    builder.store(Constants.BUY, nft);
+    TvmCell payload = builder.toCell();
+    uint128 gasPrice = MarketGas.NFT_TRANSFER + MarketGas.PROCESSING;
+
+    return
+      {value: 0, flag: MsgFlag.REMAINING_GAS, bounce: false} (
+        payload,
+        gasPrice
+      );
+  }
+
+  /**
+   * @dev see {IBuy}
+   */
+  function cancelBuyPrice(address nft, address sendGasTo) external override {
+    require(buyPrice.exists(nft), MarketErrors.NFT_NOT_FOR_SALE);
+    require(
+      msg.value >= MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING,
+      MarketErrors.GAS_VALUE_TOO_LOW
+    );
+
+    tvm.rawReserve(0, 4);
+
+    mapping(address => ITIP4_1NFT.CallbackParams) callbacks;
+    TvmBuilder builder;
+    builder.store(Constants.BUY, nft);
+
+    callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
+      MarketGas.PROCESSING,
+      builder.toCell()
+    );
+
+    ITIP4_1NFT(nft).changeManager{
+      value: 0,
+      flag: MsgFlag.NOT_RESERVED,
+      bounce: true
+    }(_owner, sendGasTo, callbacks);
+  }
+
+  /**
+   * @dev see {MarketBase}
+   */
+  function _buy(
+    uint128 amount,
+    address nft,
+    address to,
+    address senderWallet,
+    address sendGasTo
+  ) internal view override {
+    if (buyPrice.exists(nft) && amount >= buyPrice[nft].price) {
+      TvmBuilder builder;
+      builder.store(Constants.BUY, nft);
+
+      _transferNft(nft, to, sendGasTo, builder.toCell());
+    } else {
+      _refundTip3Token(amount, senderWallet, sendGasTo);
+    }
+  }
+}

@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+pragma AbiHeader expire;
+pragma AbiHeader pubkey;
+pragma AbiHeader time;
+
+import "@itgold/everscale-tip/contracts/TIP6/TIP6.sol";
+import "../abstract/Buy.tsol";
+import "../abstract/DutchAuction.tsol";
+import "../abstract/EnglishAuction.tsol";
+
+/**
+ * @title Marketplace
+ *
+ * @dev This contract is an entrypoint to all
+ * supported markets. {Direct buy,Dutch auction,
+ * English auction and Open bidding}
+ */
+contract Marketplace is Buy, DutchAuction, EnglishAuction, TIP6 {
+  constructor(
+    address owner,
+    address sendGasTo,
+    address tip3TokenRoot,
+    uint128 tip3DeployValue
+  ) public MarketBase(owner, sendGasTo, tip3TokenRoot, tip3DeployValue) {
+    tvm.rawReserve(_reserve(), 0);
+    _supportedInterfaces[
+      bytes4(tvm.functionId(ITIP6.supportsInterface))
+    ] = true;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(INftTransfer.onNftTransfer)) ^
+        bytes4(tvm.functionId(INftChangeManager.onNftChangeManager)) ^
+        bytes4(
+          tvm.functionId(IAcceptTokensTransferCallback.onAcceptTokensTransfer)
+        )
+    ] = true;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(IBuy.buy)) ^
+        bytes4(tvm.functionId(IBuy.cancelBuyPrice)) ^
+        bytes4(tvm.functionId(IBuy.createBuyListing))
+    ] = true;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(IDutchAuction.createDutchAuction)) ^
+        bytes4(tvm.functionId(IDutchAuction.placeDutchAuctionBid)) ^
+        bytes4(tvm.functionId(IDutchAuction.finalizeDutchAuction)) ^
+        bytes4(tvm.functionId(IDutchAuction.getDeclinePrice)) ^
+        bytes4(tvm.functionId(IDutchAuction.cancelDutchAuction))
+    ] = true;
+
+    _supportedInterfaces[
+      bytes4(tvm.functionId(IEnglishAuction.createReserveAuction)) ^
+        bytes4(tvm.functionId(IEnglishAuction.finalizeReserveAuction)) ^
+        bytes4(tvm.functionId(IEnglishAuction.cancelReserveAuction)) ^
+        bytes4(tvm.functionId(IEnglishAuction.placeReserveAuctionBid))
+    ] = true;
+  }
+
+  /**
+   * @dev Function to withdraw excess gas token
+   *
+   * @param to address of receiver
+   * @param amount value to send
+   */
+  function withdraw(
+    address to,
+    uint128 amount
+  ) external view onlyStoreOwner {
+    tvm.accept();
+    to.transfer(amount, false, 0);
+  }
+
+  /**
+   * @dev Function to withdraw tip3 sales revenues from store
+   *
+   * @param amount tip3 value to withdraw
+   * @param remainingGasTo address to forward excess gas to
+   */
+  function withdrawTip3(
+    uint128 amount,
+    address remainingGasTo
+  ) external view onlyStoreOwner {
+    tvm.accept();
+    TvmCell empty;
+
+    ITokenWallet(_tip3TokenWallet).transferToWallet{
+      value: MarketGas.TIP3_TRANSFER,
+      flag: MsgFlag.SPECIFIED_VALUE,
+      bounce: false
+    }(amount, _sellerTip3Wallet, remainingGasTo, true, empty);
+  }
+
+  /**
+   * @dev Function to destroy the marketplace
+   * Ensure you have moved all tip3 tokens before calling
+   *
+   * @param dest address where remaining native bal will be sent to
+   */
+  function destroyStore(address dest) external onlyStoreOwner {
+    tvm.accept();
+    selfdestruct(dest);
+  }
+}

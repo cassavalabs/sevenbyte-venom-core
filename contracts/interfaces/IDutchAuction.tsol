@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: MIT
+
+pragma ever-solidity >=0.62.0;
+
+/**
+ * @title IDutchAuction
+ *
+ * @dev An interface for interacting with the
+ * dutch auction market
+ */
+interface IDutchAuction {
+  /**
+   * @dev Function to build payload for creating
+   * an auction for nft sale
+   *
+   * @param nft address of nft for sale
+   * @param sendGasTo excess gas refund receipient
+   * @param startingPrice highest price to start
+   * @param reservePrice lowest price to fall to
+   * @param startTime timestamp of auction opening
+   * @param endTime timestamp of auction closing
+   */
+  function createDutchAuction(
+    address nft,
+    address sendGasTo,
+    uint128 startingPrice,
+    uint128 reservePrice,
+    uint64 startTime,
+    uint64 endTime
+  ) external view responsible returns (TvmCell, uint128);
+
+  /**
+   * @dev Function to build payload for placing
+   * a bid on a dutch auction.
+   *
+   * @param nft address of nft auctioned
+   * @param amount your bid amount
+   *
+   * @return TvmCell payload to attach to tip3 token transfer
+   */
+  function placeDutchAuctionBid(
+    address nft,
+    uint128 amount
+  ) external view responsible returns (TvmCell, uint128);
+
+  /**
+   * @dev Function to cancel a dutch auction and
+   * change manager back to owner.
+   * Can only be called by the marketplace store owner
+   *
+   * @param nft address of nft to cancel its listing
+   * @param sendGasTo address to refund excess gas
+   */
+  function cancelDutchAuction(address nft, address sendGasTo) external;
+
+  /**
+   * @dev Function to finalize dutch auction
+   * and distribute nft to winning bid
+   *
+   * @param nft address of nft
+   * @param sendGasTo the address to refund excell gas to
+   */
+  function finalizeDutchAuction(address nft, address sendGasTo) external;
+
+  /**
+   * @dev Function to return the next best decline price
+   *
+   * @param nft address of nft under consideration
+   * @return declined price
+   */
+  function getDeclinePrice(address nft) external view returns (uint128);
+}
