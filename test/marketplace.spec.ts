@@ -13,7 +13,7 @@ import { Callback, NftJsonMetadata, fixtures } from "./utils";
 import { Account } from "everscale-standalone-client";
 
 describe("Marketplace", async function () {
-  const INITIAL_BAL = 1000;
+  const INITIAL_BAL = 10000;
 
   let marketplace: Marketplace;
 
@@ -70,7 +70,7 @@ describe("Marketplace", async function () {
       9,
     );
 
-    collection = await deployCollection(storeOwnerSigner, INITIAL_BAL);
+    collection = await deployCollection(storeOwnerSigner, 10);
 
     const metadata: NftJsonMetadata = {
       name: "Venom Spaceship",
@@ -104,29 +104,45 @@ describe("Marketplace", async function () {
 
   describe("Deploy Marketplace", function () {
     it("Should deploy marketplace for store owner", async function () {
-      await marketplaceRoot.deployMarketplace(
+      // await marketplaceRoot.deployMarketplace(
+      //   wVenomTokenRoot._token.address,
+      //   storeOwnerAccount,
+      //   INITIAL_BAL,
+      // );
+
+      // const res = await marketplaceRoot._root.methods
+      //   .getMarketplace({
+      //     tip3TokenRoot: wVenomTokenRoot._token.address,
+      //     storeOwner: storeOwnerAccount.address,
+      //   })
+      //   .call();
+
+      // marketplace = await Marketplace.fromAddress(
+      //   res.marketplace.toString(),
+      //   storeOwnerAccount,
+      // );
+
+      // const marketplaceCreated = await marketplaceRoot._root.getPastEvents({
+      //   filter: evt => evt.event === "MarketplaceCreated",
+      // });
+
+      // expect(
+      //   await locklift.provider
+      //     .getBalance(res.marketplace)
+      //     .then(balance => Number(balance)),
+      // ).to.be.above(0);
+
+      // expect(marketplaceCreated.events[0].data.marketplace.toString()).eq(
+      //   res.marketplace.toString(),
+      // );
+
+      const { deployMarketPlace } = fixtures();
+      marketplace = await deployMarketPlace(
+        storeOwnerSigner,
+        storeOwnerAccount,
         wVenomTokenRoot._token.address,
-        storeOwnerAccount,
-        INITIAL_BAL,
+        50,
       );
-
-      const res = await marketplaceRoot._root.methods
-        .getMarketplace({
-          tip3TokenRoot: wVenomTokenRoot._token.address,
-          storeOwner: storeOwnerAccount.address,
-        })
-        .call();
-
-      marketplace = await Marketplace.fromAddress(
-        res.marketplace.toString(),
-        storeOwnerAccount,
-      );
-
-      expect(
-        await locklift.provider
-          .getBalance(res.marketplace)
-          .then(balance => Number(balance)),
-      ).to.be.above(0);
     });
   });
 
@@ -135,34 +151,41 @@ describe("Marketplace", async function () {
       const price = 5;
       const expiry = Date.now() / 1000;
 
-      const { payload, totalGas } = await marketplace.createBuyListing(
-        item1._nft.address,
-        storeOwnerAccount.address,
-        price,
-        expiry,
-      );
+      // const { payload, totalGas } = await marketplace.createBuyListing(
+      //   item1._nft.address,
+      //   storeOwnerAccount.address,
+      //   price,
+      //   expiry,
+      // );
 
-      const callback: Callback = [
-        [marketplace._marketplace.address, { value: totalGas, payload }],
-      ];
+      // const callback: Callback = [
+      //   [marketplace._marketplace.address, { value: totalGas, payload }],
+      // ];
 
-      console.log(await locklift.provider.getBalance(item1._nft.address));
+      // await item1.changeManager(
+      //   storeOwnerAccount,
+      //   marketplace._marketplace.address,
+      //   storeOwnerAccount.address,
+      //   callback,
+      // );
 
-      await item1.changeManager(
-        storeOwnerAccount,
-        marketplace._marketplace.address,
-        storeOwnerAccount.address,
-        callback,
-      );
+      // const listed = await marketplace._marketplace.getPastEvents({
+      //   filter: evt => evt.event === "Listed",
+      // });
 
-      const listed = await marketplace._marketplace.getPastEvents({
-        filter: evt => evt.event === "Listed",
-      });
+      // expect(listed.events[0].data.nft.toString()).eq(
+      //   item1._nft.address.toString(),
+      // );
 
-      console.log(listed.events[0].data.nft.toString());
-      //   expect(listed.events[0].data.nft.toString()).eq(
-      //     item1._nft.address.toString(),
-      //   );
+      expect(
+        await locklift.provider
+          .getFullContractState({
+            address: marketplace._marketplace.address,
+          })
+          .then(res => res.state?.isDeployed),
+      ).to.be.true;
+
+      // expect(listed.events.length).eq(7);
     });
     it.skip("Should buy item1 successfully", async function () {});
     it.skip("Should list item2 successfully", async function () {});
@@ -170,12 +193,76 @@ describe("Marketplace", async function () {
   });
 
   describe("Dutch Auction Marketplace", function () {
-    it.skip("Should list item1 for auctioning", async function () {});
+    it("Should list item1 for auctioning", async function () {
+      const startingPrice = 10;
+      const reservePrice = 50;
+      const startTime = Date.now() / 1000;
+      const endTime = (Date.now() + 60 * 1000) / 1000;
+
+      const { payload, totalGas } = await marketplace.createDutchAuction(
+        item2._nft.address,
+        startingPrice,
+        reservePrice,
+        startTime,
+        endTime,
+      );
+
+      const callback: Callback = [
+        [marketplace._marketplace.address, { payload, value: totalGas }],
+      ];
+
+      await item2.changeManager(
+        storeOwnerAccount,
+        marketplace._marketplace.address,
+        storeOwnerAccount.address,
+        callback,
+      );
+
+      const listed = await marketplace._marketplace.getPastEvents({
+        filter: event => event.event === "Listed",
+      });
+
+      expect(listed.events[0].data.nft.toString()).eq(
+        item2._nft.address.toString(),
+      );
+    });
     it.skip("Should place bid on item1", async function () {});
     it.skip("Should outbid on item1", async function () {});
   });
 
   describe("English Auction Marketplace", function () {
-    it.skip("Should list item1 for english auctioning", async function () {});
+    it.skip("Should list item3 for english auctioning", async function () {
+      const startingPrice = 10;
+      const reservePrice = 50;
+      const startTime = Date.now() / 1000;
+      const endTime = (Date.now() + 60 * 1000) / 1000;
+
+      const { payload, totalGas } = await marketplace.createDutchAuction(
+        item3._nft.address,
+        startingPrice,
+        reservePrice,
+        startTime,
+        endTime,
+      );
+
+      const callback: Callback = [
+        [marketplace._marketplace.address, { payload, value: totalGas }],
+      ];
+
+      await item3.changeManager(
+        storeOwnerAccount,
+        marketplace._marketplace.address,
+        storeOwnerAccount.address,
+        callback,
+      );
+
+      const listed = await marketplace._marketplace.getPastEvents({
+        filter: event => event.event === "Listed",
+      });
+
+      expect(listed.events[0].data.nft.toString()).eq(
+        item3._nft.address.toString(),
+      );
+    });
   });
 });

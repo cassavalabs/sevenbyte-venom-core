@@ -26,13 +26,17 @@ export class MarketplaceRoot {
     ownerAccount: Account,
     deployValue: number,
   ) {
-    return this._root.methods
+    await this._root.methods
       .deployMarketplace({
         _deployValue: deployValue,
         _sendGasTo: ownerAccount.address,
         _storeOwner: ownerAccount.address,
         _tip3TokenRoot: tip3Root,
       })
-      .send({ from: ownerAccount.address, amount: locklift.utils.toNano(10) });
+      .send({
+        from: ownerAccount.address,
+        amount: locklift.utils.toNano(20),
+        bounce: false,
+      });
   }
 }

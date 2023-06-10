@@ -94,7 +94,7 @@ abstract contract DutchAuction is IDutchAuction, MarketBase, Auctionable {
     responsible
     override
     onlyStoreOwner
-    returns (TvmCell payload, uint128 totalGas)
+    returns (TvmCell, uint128)
   {
     require(!dutchAuction.exists(nft), MarketErrors.NFT_ALREADY_LISTED);
     _validateAuctionTime(startTime, endTime);
@@ -111,14 +111,14 @@ abstract contract DutchAuction is IDutchAuction, MarketBase, Auctionable {
       startTime,
       endTime
     );
-    totalGas = MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING;
+    uint128 totalGas = MarketGas.NFT_CHANGE_MANAGER + MarketGas.PROCESSING;
 
     callbacks[address(this)] = ITIP4_1NFT.CallbackParams(
       totalGas,
       builder.toCell()
     );
 
-    payload = tvm.encodeBody(
+    TvmCell payload = tvm.encodeBody(
       ITIP4_1NFT.changeManager,
       address(this),
       sendGasTo,

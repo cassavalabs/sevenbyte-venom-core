@@ -3,7 +3,8 @@ import { TokenRoot } from "../wrappers/TokenRoot";
 import { MarketplaceRoot } from "../wrappers/MarketplaceRoot";
 import { OpenBidRoot } from "../wrappers/OpenBidRoot";
 import { CollectionRoot } from "../wrappers/CollectionRoot";
-import { Collection } from "../wrappers";
+import { Collection, Marketplace } from "../wrappers";
+import { Account } from "everscale-standalone-client";
 
 export function fixtures() {
   const deployTokenRoot = async (
@@ -140,6 +141,28 @@ export function fixtures() {
     return new Collection(contract, signer);
   };
 
+  const deployMarketPlace = async (
+    signer: Signer,
+    owner: Account,
+    tip3TokenRoot: Address,
+    initialBal: number,
+  ) => {
+    const { contract } = await locklift.factory.deployContract({
+      contract: "Marketplace",
+      publicKey: signer.publicKey,
+      initParams: { _owner: owner.address, _tip3TokenRoot: tip3TokenRoot },
+      constructorParams: {
+        owner: owner.address,
+        sendGasTo: owner.address,
+        tip3TokenRoot: tip3TokenRoot,
+        tip3DeployValue: initialBal,
+      },
+      value: locklift.utils.toNano(20),
+    });
+
+    return new Marketplace(contract, owner);
+  };
+
   return {
     deployTokenRoot,
     deployAccount,
@@ -147,6 +170,7 @@ export function fixtures() {
     deployCollection,
     deployMarketplaceRoot,
     deployOpenBidRoot,
+    deployMarketPlace,
     getSigner,
   };
 }

@@ -32,7 +32,20 @@ export class Marketplace {
     reservePrice: number,
     startTime: number,
     endTime: number,
-  ) {}
+  ) {
+    const res = await this._marketplace.methods
+      .createReserveAuction({
+        answerId: 0,
+        nft,
+        sendGasTo: this._owner.address,
+        reservePrice,
+        startTime,
+        endTime,
+      })
+      .call();
+
+    return { payload: res.value0, totalGas: res.value1 };
+  }
 
   async finalizeReserveAuction(nft: Address) {}
 
@@ -48,7 +61,21 @@ export class Marketplace {
     reservePrice: number,
     startTime: number,
     endTime: number,
-  ) {}
+  ) {
+    const res = await this._marketplace.methods
+      .createDutchAuction({
+        answerId: 0,
+        nft,
+        sendGasTo: this._owner.address,
+        startingPrice,
+        reservePrice,
+        startTime,
+        endTime,
+      })
+      .call();
+
+    return { payload: res.value0, totalGas: res.value1 };
+  }
 
   async placeDutchAuctionBid(nft: Address, amount: number) {}
 
